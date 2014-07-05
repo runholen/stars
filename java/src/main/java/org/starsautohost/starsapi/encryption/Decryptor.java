@@ -31,6 +31,12 @@ public class Decryptor
 	 * The first 64 prime numbers, after '2' (so all are odd).
 	 * These are used as starting seeds to the random number
 	 * generator.
+	 * 
+	 * IMPORTANT:  One number here is not prime (279).  I thought
+	 * it should be replaced with 269, which is prime.  But newer
+	 * versions of StarHostEditor and related code use 279.  I have
+	 * been unable to trigger it as a starting seed so I don't know 
+	 * which is better.
 	 */
     private int[] primes = new int[] { 
     		3, 5, 7, 11, 13, 17, 19, 23, 
@@ -39,8 +45,8 @@ public class Decryptor
     		101, 103, 107, 109, 113, 127, 131, 137,
     		139, 149, 151, 157, 163, 167, 173, 179,
     		181, 191, 193, 197, 199, 211, 223, 227,
-    		229, 233, 239, 241, 251, 257, 263, 269,
-    		271, 277, 281, 283, 293, 307, 311, 313
+    		229, 233, 239, 241, 251, 257, 263, 279,
+    		271, 277, 281, 283, 293, 307, 311, 313 
     };
 
 

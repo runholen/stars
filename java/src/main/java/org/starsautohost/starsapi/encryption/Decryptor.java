@@ -156,6 +156,11 @@ public class Decryptor
 		// Else index2 uses the upper half of the primes table
 		else
 			index2 += 32;
+		
+		// FIXME If this is ever triggered, determine xthe right value of either
+		// 269 or 279!
+		if(index1 == 55 || index2 == 55)
+			System.out.println("Prime number seed index 55 was hit (269 or 279).  Did the block decrypt properly?");
 			
 		// Determine the number of initialization rounds from 4 other data points
 		// 0 or 1 if shareware (I think this is correct, but may not be - so far

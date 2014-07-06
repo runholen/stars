@@ -9,6 +9,7 @@ import org.starsautohost.starsapi.Util;
 import org.starsautohost.starsapi.block.Block;
 import org.starsautohost.starsapi.block.BlockType;
 import org.starsautohost.starsapi.block.FileHeaderBlock;
+import org.starsautohost.starsapi.block.PlanetsBlock;
 
 
 /**
@@ -26,6 +27,7 @@ public class Decryptor
 {
 	private static int BLOCK_HEADER_SIZE = 2;  // bytes
 	private static int BLOCK_MAX_SIZE = 1024;  // bytes
+	private static int BLOCK_PADDING = 4;      // bytes
 	
 	/**
 	 * The first 64 prime numbers, after '2' (so all are odd).
@@ -50,97 +52,17 @@ public class Decryptor
     };
 
 
-	private FileHeaderBlock fileHeaderBlock = null;
-	private StarsRNG random = null;
+	private StarsRandom random = null;
     
-	
-	/**
-	 * Stars Random Number Generator
-	 * 
-	 * This needs to be seeded and is used for decryption.
-	 * 
-	 * Each new random number uses new seeds based on previous seeds and
-	 * some possibly random constants
-	 */
-	private class StarsRNG {
-		// We'll use 'long' for our seeds to avoid signed-integer problems
-		private long seedA;
-		private long seedB;
-		
-		private int rounds;
-		
-		public StarsRNG(int prime1, int prime2, int initRounds) {
-			seedA = prime1;
-			seedB = prime2;
-			rounds = initRounds;
-			
-			// Now initialize a few rounds
-			for(int i = 0; i < rounds; i++)
-				nextRandom();
-		}
-		
-		/**
-		 * Get the next random number with this seeded generator
-		 * 
-		 * @return
-		 */
-		public long nextRandom() {
-			// First, calculate new seeds using some constants
-			long seedApartA = (seedA % 53668) * 40014;
-			long seedApartB = (seedA / 53668) * 12211;  // integer division OK
-			long newSeedA = seedApartA - seedApartB;
-			
-			long seedBpartA = (seedB % 52774) * 40692;
-			long seedBpartB = (seedB / 52774) * 3791;
-			long newSeedB = seedBpartA - seedBpartB;
-			
-			// If negative add a whole bunch (there's probably some weird bit math
-			// going on here that the disassembler didn't make obvious)
-			if(newSeedA < 0)
-				newSeedA += 0x7fffffab;
-
-			if(newSeedB < 0)
-				newSeedB += 0x7fffff07;
-			
-			// Set our new seeds
-			seedA = newSeedA;
-			seedB = newSeedB;
-			
-			// Generate "random" number.  This will fit into an unsigned 32bit integer
-			// We use 'long' because...  java...
-			long randomNumber = seedA - seedB;
-			if(seedA < seedB)
-				randomNumber += 0x100000000l;  // 2^32
-
-			// DEBUG
-//			System.out.println("seed1: " + seedA + "; seed2: " + seedB);
-//			System.out.println("rand: " + randomNumber);
-			
-			// Now return our random number
-			return randomNumber;
-		}
-		
-		
-		@Override
-		public String toString() {
-			String s = "Random Number Generator:\n";
-			
-			s += "Seed 1: " + seedA + "\n";
-			s += "Seed 2: " + seedB + "\n";
-			s += "Rounds: " + rounds + "\n";
-			
-			return s;
-		}
-	}
-	
 	
 	/**
 	 * Initialize the decryption system by seeding and initializing a
 	 * random number generator
+	 * @param block 
 	 * 
 	 * @throws Exception
 	 */
-	private void initDecryption() throws Exception {
+	private void initDecryption(FileHeaderBlock fileHeaderBlock) throws Exception {
 		int salt = fileHeaderBlock.encryptionSalt;
 		
 		// Use two prime numbers as random seeds.
@@ -157,7 +79,7 @@ public class Decryptor
 		else
 			index2 += 32;
 		
-		// FIXME If this is ever triggered, determine xthe right value of either
+		// FIXME If this is ever triggered, determine the right value of either
 		// 269 or 279!
 		if(index1 == 55 || index2 == 55)
 			System.out.println("Prime number seed index 55 was hit (269 or 279).  Did the block decrypt properly?");
@@ -181,7 +103,10 @@ public class Decryptor
 		int rounds = (part4 * part3 * part2) + part1;
 		
 		// Now initialize our random number generator
-		random = new StarsRNG(primes[index1], primes[index2], rounds);
+		random = new StarsRandom(primes[index1], primes[index2], rounds);
+
+		// DEBUG
+//		System.out.println(random);
 	}
 
 
@@ -196,26 +121,27 @@ public class Decryptor
 	 */
 	private void decryptBlock(Block block) throws Exception {
 		// If it's a header block, it's unencrypted and will be used to 
-		// initialize the decryption system
-		if(block.type == BlockType.FILE_HEADER) { // Not encrypted
-			fileHeaderBlock = new FileHeaderBlock(block);
+		// initialize the decryption system.  We have to decode it first
+		if(block.typeId == BlockType.FILE_HEADER) {
 			block.encrypted = false;
+			block.decode();
 			
-			initDecryption();
-			// DEBUG
-//			System.out.println(fileHeaderBlock);
-//			System.out.println(random);
+			initDecryption((FileHeaderBlock) block);
 			
 			return;
 		}
+
+		byte[] encryptedData = block.getData();
+		
+		byte[] decryptedData = new byte[block.paddedSize];
 		
 		// Now decrypt, processing 4 bytes at a time
-		for(int i = 0; i < block.size; i+=4) {
+		for(int i = 0; i < block.paddedSize; i+=4) {
 			// Swap bytes:  4 3 2 1
-			long chunk = (Util.ubyteToInt(block.data[i+3]) << 24)
-					| (Util.ubyteToInt(block.data[i+2]) << 16)
-					| (Util.ubyteToInt(block.data[i+1]) << 8)
-					| Util.ubyteToInt(block.data[i]);
+			long chunk = (Util.ubyteToInt(encryptedData[i+3]) << 24)
+					| (Util.ubyteToInt(encryptedData[i+2]) << 16)
+					| (Util.ubyteToInt(encryptedData[i+1]) << 8)
+					| Util.ubyteToInt(encryptedData[i]);
 			
 //			System.out.println("chunk: " + chunk);
 			
@@ -224,11 +150,13 @@ public class Decryptor
 //			System.out.println("dechunk: " + decryptedChunk);
 			
 			// Write out the decrypted data, swapped back
-			block.decryptedData[i] =  (byte) (decryptedChunk & 0xFF);
-			block.decryptedData[i+1] =  (byte) ((decryptedChunk >> 8)  & 0xFF);
-			block.decryptedData[i+2] =  (byte) ((decryptedChunk >> 16)  & 0xFF);
-			block.decryptedData[i+3] =  (byte) ((decryptedChunk >> 24)  & 0xFF);
+			decryptedData[i] =  (byte) (decryptedChunk & 0xFF);
+			decryptedData[i+1] =  (byte) ((decryptedChunk >> 8)  & 0xFF);
+			decryptedData[i+2] =  (byte) ((decryptedChunk >> 16)  & 0xFF);
+			decryptedData[i+3] =  (byte) ((decryptedChunk >> 24)  & 0xFF);
 		}
+		
+		block.setDecryptedData(decryptedData);
 	}
 		
 	
@@ -246,27 +174,34 @@ public class Decryptor
 	 * @param currentIndex
 	 * @param fileBytes
 	 * @return
+	 * @throws Exception 
 	 */
-	private Block parseBlock(int currentIndex, byte[] fileBytes) {
-		Block block = new Block();
-
+	private Block parseBlock(int currentIndex, byte[] fileBytes) throws Exception {
 		// We have to do a bitwise AND with 0xFF to convert from unsigned byte to int
 		int byte1 = Util.ubyteToInt(fileBytes[currentIndex]);
 		int byte2 = Util.ubyteToInt(fileBytes[currentIndex+1]);
 
 		int lowBits = byte2 & 3;
 		
-		block.size = (lowBits << 8) | byte1;
-		block.type = byte2 >> 2;
+		int size = (lowBits << 8) | byte1;
+		int typeId = byte2 >> 2;
+		
+		if(size > BLOCK_MAX_SIZE)
+			throw new Exception("Bad block size: " + size + "; typeId: " + typeId);
 		
 		// We must have a padded byte array because decryption works on 4
 		// bytes at a time
-		int paddedLength = (block.size + 3) & ~0x03;  // Tricky way to round up to a multiple of 4
-		block.data = new byte[paddedLength];
-		block.decryptedData = new byte[paddedLength];
+		int paddedSize = (size + (BLOCK_PADDING-1)) & ~(BLOCK_PADDING-1);
+		byte[] data = new byte[paddedSize];
 		
-		// Now copy out our data
-		System.arraycopy(fileBytes, currentIndex + 2, block.data, 0, block.size);
+		// Now copy the block data from the file byte array
+		System.arraycopy(fileBytes, currentIndex + 2, data, 0, size);
+		
+		// This will create the appropriate Block-type object according to the typeId
+		Class<? extends Block> blockClass = BlockType.getBlockClass(typeId);
+		
+		Block block = blockClass.newInstance();
+		block.setData(data, size, paddedSize);
 		
 		return block;
 	}
@@ -286,17 +221,11 @@ public class Decryptor
 	private int postProcessBlock(int startIndex, byte[] fileBytes, Block block) {
 		int size = 0;
 		
-		if(block.type == BlockType.PLANETS) {
-			// Planet size is determined by swapping bytes 10 and 11
-			// the decrypted block and concatenating their bits, e.g.:
-			//   byte 10 - XXXXXXXX
-			//   byte 11 - YYYYYYYY
-			// planetSize = YYYYYYYYXXXXXXXX
-			int planetSize = (Util.ubyteToInt(block.decryptedData[11]) << 8) 
-					| Util.ubyteToInt(block.decryptedData[10]);
+		if(block.typeId == BlockType.PLANETS) {
+			PlanetsBlock planetsBlock = (PlanetsBlock) block;
 			
 			// There are 4 bytes per planet
-			size = planetSize * 4;
+			size = planetsBlock.planetsSize * 4;
 			
 			block.otherData = Arrays.copyOfRange(fileBytes, startIndex, startIndex + size);
 		}
@@ -337,7 +266,11 @@ public class Decryptor
 			// Initial parse of our block
 			Block block = parseBlock(currentIndex, fileBytes);
 			
+			// Do the decryption!
 			decryptBlock(block);
+			
+			// Decode!
+			block.decode();
 
 			// Advance our read index
 			currentIndex = currentIndex + block.size + BLOCK_HEADER_SIZE;
@@ -351,39 +284,11 @@ public class Decryptor
 			// DEBUG
 //			System.out.println(block);
 			
-			// Bounds checking
-			if(block.size > BLOCK_MAX_SIZE)
-				throw new Exception("Bad block size: " + block.size);
-			
-			if(block.type == BlockType.UNKNOWN_BAD || block.type > BlockType.SAVE_AND_SUBMIT || block.type < BlockType.FILE_FOOTER)
-				throw new Exception("Bad block type encountered: " + block.type);
-
-			
 			// Store block for later parsing
 			blockList.add(block);
 		}
 		
 		return blockList;
-	}
-	
-	
-	/**
-	 * @param args
-	 * @throws Exception
-	 */
-	public static void main(String[] args) throws Exception {
-		
-		Decryptor d = new Decryptor();
-		
-		// This list has everything you want!
-		ArrayList<Block> blockList = d.readFile("game.xy");
-		
-		for(Block block: blockList)
-			System.out.println(block);
-		
-		// Do something with the block list
-		
-		System.out.println("Done");
 	}
 }
 

@@ -1,9 +1,15 @@
 package org.starsautohost.starsapi.block;
 
+import java.util.HashMap;
+
 /**
  * Taken from http://wiki.starsautohost.org/wiki/Technical_Information
  */
 public class BlockType {
+	
+	/**
+	 * Here are all the Block Type IDs
+	 */
 	public static int FILE_FOOTER = 0;
 	public static int MANUAL_SMALL_LOAD_UNLOAD_TASK = 1;
 	public static int MANUAL_MEDIUM_LOAD_UNLOAD_TASK = 2;
@@ -54,4 +60,71 @@ public class BlockType {
 	
 	// Default
 	public static int UNKNOWN_BAD = -1;
+	
+	
+	/**
+	 * Here we create a map that maps the block typeId to a class
+	 * 
+	 * It's the best we can do without tuples or preprocessor definitions
+	 */
+	private static final HashMap<Integer, Class<? extends Block> > typeToClass;
+	static {
+		typeToClass = new HashMap<Integer, Class<? extends Block> >();
+		typeToClass.put(FILE_FOOTER, FileFooterBlock.class);
+		typeToClass.put(FILE_FOOTER, FileFooterBlock.class);
+		typeToClass.put(MANUAL_SMALL_LOAD_UNLOAD_TASK, ManualSmallLoadUnloadTaskBlock.class);
+		typeToClass.put(MANUAL_MEDIUM_LOAD_UNLOAD_TASK, ManualMediumLoadUnloadTaskBlock.class);
+		typeToClass.put(WAYPOINT_DELETE, WaypointDeleteBlock.class);
+		typeToClass.put(WAYPOINT_ADD, WaypointAddBlock.class);
+		typeToClass.put(WAYPOINT_CHANGE_TASK, WaypointChangeTaskBlock.class);
+		typeToClass.put(PLAYER, PlayerBlock.class);
+		typeToClass.put(PLANETS, PlanetsBlock.class);
+		typeToClass.put(FILE_HEADER, FileHeaderBlock.class);
+		typeToClass.put(FILE_HASH, FileHashBlock.class);
+		typeToClass.put(WAYPOINT_REPEAT_ORDERS, WaypointRepeatOrdersBlock.class);
+		typeToClass.put(UNKNOWN_BLOCK_11, UnknownBlock11.class);
+		typeToClass.put(EVENTS, EventsBlock.class);
+		typeToClass.put(PLANET, PlanetBlock.class);
+		typeToClass.put(PARTIAL_PLANET, PartialPlanetBlock.class);
+		typeToClass.put(UNKNOWN_BLOCK_15, UnknownBlock15.class);
+		typeToClass.put(FLEET, FleetBlock.class);
+		typeToClass.put(PARTIAL_FLEET, PartialFleetBlock.class);
+		typeToClass.put(UNKNOWN_BLOCK_18, UnknownBlock18.class);
+		typeToClass.put(WAYPOINT_TASK, WaypointTaskBlock.class);
+		typeToClass.put(WAYPOINT, WaypointBlock.class);
+		typeToClass.put(FLEET_NAME, FleetNameBlock.class);
+		typeToClass.put(UNKNOWN_BLOCK_22, UnknownBlock22.class);
+		typeToClass.put(MOVE_SHIPS, MoveShipsBlock.class);
+		typeToClass.put(FLEET_SPLIT, FleetSplitBlock.class);
+		typeToClass.put(MANUAL_LARGE_LOAD_UNLOAD_TASK, ManualLargeLoadUnloadTaskBlock.class);
+		typeToClass.put(DESIGN, DesignBlock.class);
+		typeToClass.put(DESIGN_CHANGE, DesignChangeBlock.class);
+		typeToClass.put(PRODUCTION_QUEUE, ProductionQueueBlock.class);
+		typeToClass.put(PRODUCTION_QUEUE_CHANGE, ProductionQueueChangeBlock.class);
+		typeToClass.put(BATTLE_PLAN, BattlePlanBlock.class);
+		typeToClass.put(BATTLE, BattleBlock.class);
+		typeToClass.put(COUNTERS, CountersBlock.class);
+		typeToClass.put(MESSAGES_FILTER, MessagesFilterBlock.class);
+		typeToClass.put(RESEARCH_CHANGE, ResearchChangeBlock.class);
+		typeToClass.put(PLANET_CHANGE, PlanetChangeBlock.class);
+		typeToClass.put(CHANGE_PASSWORD, ChangePasswordBlock.class);
+		typeToClass.put(FLEETS_MERGE, FleetsMergeBlock.class);
+		typeToClass.put(PLAYERS_RELATION_CHANGE, PlayersRelationChangeBlock.class);
+		typeToClass.put(BATTLE_CONTINUATION, BattleContinuationBlock.class);
+		typeToClass.put(MESSAGE, MessageBlock.class);
+		typeToClass.put(AI_H_FILE_RECORD, AIHFileRecordBlock.class);
+		typeToClass.put(SET_FLEET_BATTLE_PLAN, SetFleetBattlePlanBlock.class);
+		typeToClass.put(OBJECT, ObjectBlock.class);
+		typeToClass.put(RENAME_FLEET, RenameFleetBlock.class);
+		typeToClass.put(PLAYER_SCORES, PlayerScoresBlock.class);
+		typeToClass.put(SAVE_AND_SUBMIT, SaveAndSubmitBlock.class);
+	};
+	
+
+	public static Class<? extends Block> getBlockClass(int typeId) throws Exception {
+		if(typeId < 0 || typeId >= typeToClass.size())
+			throw new Exception("Unsupported Block class for type: " + typeId);
+		
+		return typeToClass.get(typeId);
+	}
 }

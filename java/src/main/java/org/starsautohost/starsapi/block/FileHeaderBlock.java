@@ -9,10 +9,7 @@ import org.starsautohost.starsapi.Util;
  * 
  * Yes.  I deliberately left out getters/setters. 
  */
-public class FileHeaderBlock {
-	
-	// Original header block
-	private Block block;
+public class FileHeaderBlock extends Block {
 	
 	// Header data
 	public byte[] magicNumberData;
@@ -35,60 +32,69 @@ public class FileHeaderBlock {
 	public boolean shareware;
 
 	
-	public FileHeaderBlock(Block headerBlock) {
-		this.block = headerBlock;
-		
-		parseBlock();
+	public FileHeaderBlock() {
+		typeId = BlockType.FILE_HEADER;
 	}
-	
-	
+
+
 	/**
-	 * Parse the given block according to rules found at:
+	 * Parse the given block data according to rules found at:
 	 *    http://wiki.starsautohost.org/wiki/FileHeaderBlock
 	 *    
 	 * Bytes are offset 2 as the type and size have already been parsed off.
 	 * E.g. the magic number is bytes 0-3 
+	 * @throws Exception 
 	 */
-	private void parseBlock() {
-		magicNumberData = Arrays.copyOfRange(block.data, 0, 4);
+	@Override
+	public void decode() throws Exception {
+		if(!hasData)
+			throw new Exception("Cannot decode without data being set!");
+		
+		magicNumberData = Arrays.copyOfRange(data, 0, 4);
 		magicNumberString = new String(magicNumberData);
 		
 		// Game id is 4 bytes (swapped)
-		gameId = (Util.ubyteToInt(block.data[7]) << 24)
-				| (Util.ubyteToInt(block.data[6]) << 16)
-				| (Util.ubyteToInt(block.data[5]) << 8)
-				| Util.ubyteToInt(block.data[4]);
+		gameId = (Util.ubyteToInt(data[7]) << 24)
+				| (Util.ubyteToInt(data[6]) << 16)
+				| (Util.ubyteToInt(data[5]) << 8)
+				| Util.ubyteToInt(data[4]);
 		
 		// Version data block is two bytes (swapped)
-		int versionData = (Util.ubyteToInt(block.data[9]) << 8) | Util.ubyteToInt(block.data[8]);
+		int versionData = (Util.ubyteToInt(data[9]) << 8) | Util.ubyteToInt(data[8]);
 		versionMajor = versionData >> 12;         // First 4 bits
 		versionMinor = (versionData >> 5) & 0x7F; // Middle 7 bits
 		versionIncrement = versionData & 0x1F;    // Last 5 bits
 		
 		// Turn is next two bytes (swapped)
-		turn = (Util.ubyteToInt(block.data[11]) << 8) | Util.ubyteToInt(block.data[10]);
+		turn = (Util.ubyteToInt(data[11]) << 8) | Util.ubyteToInt(data[10]);
 		year = 2400 + turn;
 		
 		// Player data next, 2 bytes swapped
-		int playerData = (Util.ubyteToInt(block.data[13]) << 8) | Util.ubyteToInt(block.data[12]);
+		int playerData = (Util.ubyteToInt(data[13]) << 8) | Util.ubyteToInt(data[12]);
 		encryptionSalt = playerData >> 5;  // First 11 bits
 		playerNumber = playerData & 0x1F;  // Last 5 bits
 		
 		// File type is next byte
-		fileType = Util.ubyteToInt(block.data[14]);
+		fileType = Util.ubyteToInt(data[14]);
 		
-		// Flags use the last byte of the file header block.  The bits are used like so:
+		// Flags use the last byte of the file header   The bits are used like so:
 		//   UUU43210
 		// Where 'U' is unused. and 43210 correspond to the bit shifts below
-		int flags = Util.ubyteToInt(block.data[15]);
+		int flags = Util.ubyteToInt(data[15]);
 		turnSubmitted = (flags & 1) > 0;
 		hostUsing =     (flags & (1 << 1)) > 0;
 		multipleTurns = (flags & (1 << 2)) > 0;
 		gameOver =      (flags & (1 << 3)) > 0;
-		shareware =     (flags & (1 << 4)) > 0;
+		shareware =     (flags & (1 << 4)) > 0;		
+	}
+
+
+	@Override
+	public byte[] encode() throws Exception {
+		return null;
 	}
 	
-	
+
 	@Override
 	public String toString() {
 		// This is about the most inefficient way to do this

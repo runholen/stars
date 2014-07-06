@@ -30,15 +30,13 @@ public class Decryptor
 	private static int BLOCK_PADDING = 4;      // bytes
 	
 	/**
-	 * The first 64 prime numbers, after '2' (so all are odd).
-	 * These are used as starting seeds to the random number
-	 * generator.
+	 * The first 64 prime numbers, after '2' (so all are odd). These are used 
+	 * as starting seeds to the random number generator.
 	 * 
-	 * IMPORTANT:  One number here is not prime (279).  I thought
-	 * it should be replaced with 269, which is prime.  But newer
-	 * versions of StarHostEditor and related code use 279.  I have
-	 * been unable to trigger it as a starting seed so I don't know 
-	 * which is better.
+	 * IMPORTANT:  One number here is not prime (279).  I thought it should be 
+	 * replaced with 269, which is prime.  StarsHostEditor 0.3 decompiled source
+	 * uses 279 and it turns out that an analysis of the stars EXE with a hex editor
+	 * also shows a primes table with 279.  Fun!
 	 */
     private int[] primes = new int[] { 
     		3, 5, 7, 11, 13, 17, 19, 23, 
@@ -79,11 +77,6 @@ public class Decryptor
 		else
 			index2 += 32;
 		
-		// FIXME If this is ever triggered, determine the right value of either
-		// 269 or 279!
-		if(index1 == 55 || index2 == 55)
-			System.out.println("Prime number seed index 55 was hit (269 or 279).  Did the block decrypt properly?");
-			
 		// Determine the number of initialization rounds from 4 other data points
 		// 0 or 1 if shareware (I think this is correct, but may not be - so far
 		// I have not encountered a shareware flag

@@ -5,6 +5,14 @@ import java.io.ByteArrayOutputStream;
 import org.starsautohost.starsapi.Util;
 
 public class PartialPlanetBlock extends Block {
+    // Guesses about defense estimate to number of defenses mapping, based on which tech level defenses.
+    private static int[] DEFENSES_ESTIMATES = 
+//        {0, 13, 20, 28, 37, 47, 57, 69, 83, 98, 100, 100, 100, 100, 100, 100};
+//        {0,  6, 10, 14, 18, 23, 28, 34, 41, 48, 57, 68, 83, 100, 100, 100}; 
+        {0,  5,  8, 11, 15, 19, 23, 28, 34, 40, 48, 57, 69, 85, 100, 100}; 
+//        {0,  4,  6,  9, 12, 15, 18, 22, 27, 32, 38, 45, 55, 68, 91, 100};
+//        {0,  3,  5,  7,  9, 12, 14, 17, 21, 25, 30, 35, 43, 53, 71, 100};
+    
     public int planetNumber;
     public int owner; // -1 for no owner
     public boolean isHomeworld;
@@ -18,13 +26,20 @@ public class PartialPlanetBlock extends Block {
     public boolean hasInstallations;
     public boolean isTerraformed;
     public boolean hasStarbase;
-    public byte[] preEnvironmentBytes;
+    public byte[] fractionalMinConcBytes = { 0 };
     public int ironiumConc, boraniumConc, germaniumConc;
     public int gravity, temperature, radiation;
     public int origGravity, origTemperature, origRadiation;
-    public int estimatesShort;
-    public long ironium, boranium, germanium, population, fuel;
-    public byte[] installationsBytes;
+    public int defensesEstimate; // in sixteenths of 100%
+    public int popEstimate; // in 400s, up to 4090
+    public long ironium, boranium, germanium, population;
+    public int excessPop; // the difference between 0 and 100? got this name from other utilities
+    public int mines;
+    public int factories;
+    public int defenses;
+    public byte unknownInstallationsByte;
+    public boolean contributeOnlyLeftoverResourcesToResearch;
+    public boolean hasScanner;
     public int starbaseDesign;
     public byte[] starbaseBytes;
     public int routeShort;
@@ -69,7 +84,7 @@ public class PartialPlanetBlock extends Block {
             throw new Exception("Expected data[2] & 4 in planet: " + this);
         }
         int index = 4;
-        if (hasEnvironmentInfo || ((hasSurfaceMinerals || isInUseOrRobberBaron) && !bitWhichIsOffForRemoteMiningAndRobberBaron)) {
+        if (canSeeEnvironment()) {
             int preEnvironmentLengthByte = Util.read8(decryptedData[4]);
             if ((preEnvironmentLengthByte & 0xC0) != 0) {
                 throw new Exception("Unexpected bits at data[3]: " + this);
@@ -78,8 +93,8 @@ public class PartialPlanetBlock extends Block {
             preEnvironmentLength += (preEnvironmentLengthByte & 0x30) >> 4;
             preEnvironmentLength += (preEnvironmentLengthByte & 0x0C) >> 2;
             preEnvironmentLength += (preEnvironmentLengthByte & 0x03);
-            preEnvironmentBytes = new byte[preEnvironmentLength];
-            System.arraycopy(decryptedData, 4, preEnvironmentBytes, 0, preEnvironmentLength);
+            fractionalMinConcBytes = new byte[preEnvironmentLength];
+            System.arraycopy(decryptedData, 4, fractionalMinConcBytes, 0, preEnvironmentLength);
             index += preEnvironmentLength;
             ironiumConc = Util.read8(decryptedData[index++]);
             boraniumConc = Util.read8(decryptedData[index++]);
@@ -93,7 +108,9 @@ public class PartialPlanetBlock extends Block {
                 origRadiation = Util.read8(decryptedData[index++]);
             }
             if (owner >= 0) {
-                estimatesShort = Util.read16(decryptedData, index);
+                int estimatesShort = Util.read16(decryptedData, index);
+                defensesEstimate = estimatesShort / 4096;
+                popEstimate = estimatesShort % 4096;
                 index += 2;
             }
         }
@@ -118,9 +135,19 @@ public class PartialPlanetBlock extends Block {
             index += popLength;
         }
         if (hasInstallations) {
-            installationsBytes = new byte[8];
+            byte[] installationsBytes = new byte[8];
             System.arraycopy(decryptedData, index, installationsBytes, 0, 8);
             index += 8;
+            excessPop = installationsBytes[0] & 0xFF;
+            mines = (installationsBytes[1] & 0xFF) | (installationsBytes[2] & 0x0F) << 8;
+            factories = (installationsBytes[2] & 0xF0) >> 4 | (installationsBytes[3] & 0xFF) << 4;
+            defenses = installationsBytes[4];
+            unknownInstallationsByte = installationsBytes[5];
+            contributeOnlyLeftoverResourcesToResearch = (installationsBytes[6] & 0x80) != 0;
+            hasScanner = (installationsBytes[6] & 0x01) == 0;
+            if ((installationsBytes[6] & 0x7E) != 0 || installationsBytes[7] != 0) {
+                throw new Exception("Unexpected installations data: " + this);
+            }
         }
         if (hasStarbase) {
             if (typeId == BlockType.PARTIAL_PLANET) {
@@ -148,6 +175,10 @@ public class PartialPlanetBlock extends Block {
         }
 	}
 
+    public boolean canSeeEnvironment() {
+        return hasEnvironmentInfo || ((hasSurfaceMinerals || isInUseOrRobberBaron) && !bitWhichIsOffForRemoteMiningAndRobberBaron);
+    }
+
 	
     public void convertToPartialPlanetForMFile() throws Exception {
         convertToPartialPlanetForHFile(-1);
@@ -155,6 +186,7 @@ public class PartialPlanetBlock extends Block {
     
 	public void convertToPartialPlanetForHFile(int turn) throws Exception {
 	    this.typeId = BlockType.PARTIAL_PLANET;
+	    if (canSeeEnvironment()) hasEnvironmentInfo = true;
 	    isInUseOrRobberBaron = false;
 	    bitWhichIsOffForRemoteMiningAndRobberBaron = true;
 	    // hasRoute = false;
@@ -184,9 +216,101 @@ public class PartialPlanetBlock extends Block {
         this.encode();
     }
     
+    public static PlanetBlock convertToPlanetBlockForHstFile(PartialPlanetBlock block) throws Exception {
+        PlanetBlock res;
+        if (block.typeId == BlockType.PLANET) {
+            res = (PlanetBlock)block;
+        } else {
+            block.typeId = BlockType.PLANET;
+            block.starbaseBytes = new byte[] { (byte)block.starbaseDesign, 0, 0, 0 };
+            block.hasRoute = false;
+            block.encode();
+            res = new PlanetBlock();
+            res.setDecryptedData(block.getDecryptedData(), block.size);
+            res.getDecryptedData()[2] |= 4;
+            res.decode();
+        }
+        // if we can see minerals and there are none, don't create them
+        boolean couldSeeEnvironment = block.canSeeEnvironment();
+        boolean hadMinerals = block.isInUseOrRobberBaron || block.hasSurfaceMinerals;
+        boolean hadInstallations = block.hasInstallations;
+        if (!hadMinerals && block.owner >= 0) {
+            res.hasSurfaceMinerals = true;
+        }
+        if (!hadInstallations && block.owner >= 0) {
+            if (couldSeeEnvironment && block.popEstimate == 0) {
+                // it's AR; may have limited installations data, but may have none
+            } else {
+                // even if not AR a planet may have no installations, if it was
+                // just colonized
+                res.hasInstallations = true;
+            }
+        }
+        res.isInUseOrRobberBaron = true;
+        res.hasEnvironmentInfo = true;
+        res.bitWhichIsOffForRemoteMiningAndRobberBaron = true;
+        res.weirdBit = false; //?
+        res.turn = -1;
+        if (!couldSeeEnvironment) {
+            res.fractionalMinConcBytes = new byte[] { 0 };
+            res.ironiumConc = 50;
+            res.boraniumConc = 50;
+            res.germaniumConc = 50;
+            res.gravity = 50;
+            res.temperature = 50;
+            res.radiation = 50;
+            res.defensesEstimate = 15;
+            res.popEstimate = 3300;
+        }
+        if (!hadMinerals && res.hasSurfaceMinerals) {
+            res.ironium = 50000;
+            res.boranium = 50000;
+            res.germanium = 50000;
+            if (res.population == 0 && res.owner >= 0) {
+                if (couldSeeEnvironment && res.popEstimate > 0) {
+                    res.population = 4 * res.popEstimate;
+                } else if (couldSeeEnvironment && res.popEstimate == 0) {
+                    // being lazy about checking the starbase hull
+                    res.population = 30000;
+                } else {
+                    // being lazy about checking the prt of the owner
+                    res.population = 13200;
+                }
+            }
+        }
+        if (!hadInstallations && res.hasInstallations) {
+            res.mines = 3300;
+            res.factories = 3300;
+            if (couldSeeEnvironment) {
+                res.defenses = DEFENSES_ESTIMATES[res.defensesEstimate];
+            } else {
+                res.defenses = 100;
+            }
+            res.hasScanner = true;
+        }
+        res.encode();
+        return res;
+    }
+    
+    public static PlanetBlock createEmptyPlanetForHstFile(int planetNumber) throws Exception {
+        PlanetBlock res = new PlanetBlock();
+        res.planetNumber = planetNumber;
+        res.owner = -1;
+        res.isInUseOrRobberBaron = true;
+        res.hasEnvironmentInfo = true;
+        res.bitWhichIsOffForRemoteMiningAndRobberBaron = true;
+        res.ironiumConc = 100;
+        res.boraniumConc = 100;
+        res.germaniumConc = 100;
+        res.gravity = 50;
+        res.temperature = 50;
+        res.radiation = 50;
+        res.encode();
+        return res;
+    }
+
 	@Override
 	public void encode() throws Exception {
-	    // NOTE only encodes partial planet, possibly with minerals
 	    ByteArrayOutputStream bout = new ByteArrayOutputStream();
 	    bout.write(planetNumber & 0xFF);
 	    bout.write((planetNumber >> 8) + (owner << 3));
@@ -200,11 +324,13 @@ public class PartialPlanetBlock extends Block {
 	    if (weirdBit) flag2 = flag2 | 0x80;
 	    if (hasRoute) flag2 = flag2 | 0x40;
 	    if (hasSurfaceMinerals) flag2 = flag2 | 0x20;
+	    if (hasArtifact) flag2 = flag2 | 0x10;
+	    if (hasInstallations) flag2 = flag2 | 0x08;
 	    if (isTerraformed) flag2 = flag2 | 0x04;
 	    if (hasStarbase) flag2 = flag2 | 0x02;
 	    bout.write(flag2);
-        if (hasEnvironmentInfo || ((hasSurfaceMinerals || isInUseOrRobberBaron) && !bitWhichIsOffForRemoteMiningAndRobberBaron)) {
-	        if (preEnvironmentBytes != null) bout.write(preEnvironmentBytes); 
+        if (canSeeEnvironment()) {
+	        if (fractionalMinConcBytes != null) bout.write(fractionalMinConcBytes); 
 	        bout.write(ironiumConc);
 	        bout.write(boraniumConc);
 	        bout.write(germaniumConc);
@@ -217,8 +343,8 @@ public class PartialPlanetBlock extends Block {
                 bout.write(origRadiation);
             }
             if (owner >= 0) {
-                bout.write(estimatesShort & 0xFF);
-                bout.write(estimatesShort >> 8);
+                bout.write(popEstimate & 0xFF);
+                bout.write((popEstimate >> 8) | (defensesEstimate << 4));
             }
         }
         if (hasSurfaceMinerals) {
@@ -240,8 +366,26 @@ public class PartialPlanetBlock extends Block {
             res[0] = igbpopByte;
             bout.write(res);
         }
+        if (hasInstallations) {
+            bout.write(excessPop);
+            bout.write(mines & 0xFF);
+            bout.write((factories & 0x0F) << 4 | (mines & 0x0F00) >>8);
+            bout.write((factories & 0x0FF0) >> 4);
+            bout.write(defenses);
+            bout.write(unknownInstallationsByte);
+            bout.write((contributeOnlyLeftoverResourcesToResearch ? 0x80 : 0) | (hasScanner ? 0 : 0x01));
+            bout.write(0);
+        }
         if (hasStarbase) {
-            bout.write(starbaseDesign);
+            if (typeId == BlockType.PARTIAL_PLANET) {
+                bout.write(starbaseDesign);
+            } else {
+                bout.write(starbaseBytes);
+            }
+        }
+        if (hasRoute && typeId == BlockType.PLANET) {
+            bout.write(routeShort & 0xFF);
+            bout.write(routeShort >> 8);
         }
         if (turn >= 0) {
             bout.write(turn & 0xFF);
@@ -252,7 +396,7 @@ public class PartialPlanetBlock extends Block {
         setData(bytes, bytes.length);
         encrypted = false;
 	}
-	
+	    
     private int getContentLength() {
         return 1 + byteLengthForInt(ironium) + byteLengthForInt(boranium) + byteLengthForInt(germanium)
                 + byteLengthForInt(population);
@@ -263,6 +407,63 @@ public class PartialPlanetBlock extends Block {
         if (n < 256) return 1;
         if (n < 65536) return 2;
         return 4;
+    }
+    
+    public static boolean isCompatible(PartialPlanetBlock first, PartialPlanetBlock second) {
+        if (first == null || second == null) return true;
+        if (first.owner != second.owner) return false;
+        if (first.isHomeworld != second.isHomeworld) return false;
+        if (first.hasStarbase && second.hasStarbase && (first.starbaseDesign != second.starbaseDesign)) return false;
+        if (first.hasEnvironmentInfo && second.hasEnvironmentInfo) {
+            if (first.ironiumConc != second.ironiumConc) return false;
+            if (first.boraniumConc != second.boraniumConc) return false;
+            if (first.germaniumConc != second.germaniumConc) return false;
+            if (first.gravity != second.gravity) return false;
+            if (first.temperature != second.temperature) return false;
+            if (first.radiation != second.radiation) return false;
+            if (first.isTerraformed != second.isTerraformed) return false;
+            if (first.isTerraformed) {
+                if (first.origGravity != second.origGravity) return false;
+                if (first.origTemperature != second.origTemperature) return false;
+                if (first.origRadiation != second.origRadiation) return false;
+            }
+            if (first.owner >= 0) {
+                if (first.popEstimate != second.popEstimate) return false;
+                if (first.defensesEstimate != second.defensesEstimate) return false;
+            }
+        }
+        return true;
+    }
+    
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Planet " + planetNumber + ", Owner " + owner);
+        if (isHomeworld) sb.append(", isHomeworld");
+        if (isInUseOrRobberBaron) sb.append(", isInUseOrRobberBaron");
+        if (hasEnvironmentInfo) sb.append(", hasEnvironmentInfo");
+        if (bitWhichIsOffForRemoteMiningAndRobberBaron) sb.append(", bitWhichIsOffForRemoteMiningAndRobberBaron");
+        if (weirdBit) sb.append(", weirdBit");
+        if (hasRoute) sb.append(", hasRoute");
+        if (hasSurfaceMinerals) sb.append(", hasSurfaceMinerals");
+        if (hasArtifact) sb.append(", hasArtifact");
+        if (hasInstallations) sb.append(", hasInstallations");
+        if (isTerraformed) sb.append(", isTerraformed");
+        if (hasStarbase) sb.append(", hasStarbase");
+        sb.append("\n");
+        sb.append(java.util.Arrays.toString(fractionalMinConcBytes));
+        sb.append(", MinConc: " + ironiumConc + "/" + boraniumConc + "/" + germaniumConc);
+        sb.append(", Hab: " + gravity + "/" + temperature + "/" + radiation);
+        sb.append(", OrigHab: " + origGravity + "/" + origTemperature + "/" + origRadiation);
+        sb.append("\n");
+        sb.append("Estimates: " + (defensesEstimate * 100/16) + ";" + (popEstimate*400));
+        sb.append(", Min: " + ironium + "/" + boranium + "/" + germanium);
+        sb.append(", Pop: " + population + "(00+" + excessPop + ")");
+        sb.append(", Inst: " + mines + "/" + factories + "/" + defenses + "/" + unknownInstallationsByte + "/" + contributeOnlyLeftoverResourcesToResearch + "/" + hasScanner);
+        sb.append(", SB: " + starbaseDesign + "(" + java.util.Arrays.toString(starbaseBytes) + ")");
+        sb.append(", RouteShort: " + routeShort);
+        sb.append(", Turn: " + turn);
+        return sb.toString();
     }
 
 }
